@@ -42,33 +42,53 @@ _SERP_JS = r"""(caps) => {
     const seen = new Set();
     function domain(url){ try { return new URL(url).hostname.replace(/^www\./,''); } catch(e){ return ''; } }
 
-    // Pago — top N
-    (document.querySelectorAll('#tads [data-text-ad], #tads .uEierd') || []).forEach((ad, idx) => {
-        if (out.paid.length >= caps.paid) return;
-        const link = ad.querySelector('a[href]'); const h3 = ad.querySelector('h3, [role="heading"]');
-        const cite = ad.querySelector('cite'); if (!link) return;
-        const d = domain(link.href); if (!d || d.includes('google')) return;
-        out.paid.push({pos: out.paid.length+1, domain: d, title: h3?.innerText?.trim()||'', display_url: cite?.innerText?.trim()||''});
+    // === Pago: top (#tads) e bottom (#tadsb/#bottomads) ===
+    ['#tads', '#tadsb', '#bottomads'].forEach(sel => {
+        const root = document.querySelector(sel);
+        if (!root) return;
+        root.querySelectorAll('a[href]').forEach(a => {
+            if (out.paid.length >= caps.paid) return;
+            const h = a.querySelector('[role="heading"], h3');
+            if (!h) return;                          // só o link-título do anúncio
+            const d = domain(a.href);
+            if (!d || d.includes('google') || seen.has('ad:' + d)) return;
+            seen.add('ad:' + d);
+            const wrap = a.closest('div');
+            const cite = wrap ? wrap.querySelector('cite') : null;
+            out.paid.push({pos: out.paid.length + 1, domain: d,
+                title: h.innerText.trim(), display_url: cite ? cite.innerText.trim() : ''});
+        });
     });
 
-    // Orgânico + local pack (heurística por rating no bloco)
+    // === Google Meu Negócio (local pack): blocos .rllt__details, fora do #rso ===
+    document.querySelectorAll('.rllt__details').forEach(el => {
+        if (out.local_pack.length >= caps.local) return;
+        const nameEl = el.querySelector('.OSrXXb, .dbg0pd, [role="heading"]');
+        const name = nameEl ? nameEl.innerText.trim() : '';
+        if (!name) return;
+        const ratingEl = el.querySelector('.yi40Hd');
+        const revEl = el.querySelector('.RDApEe');
+        const phone = ((el.innerText || '').match(/\(?\d{2}\)?\s?9?\d{4}-?\d{4}/) || [''])[0];
+        out.local_pack.push({
+            pos: out.local_pack.length + 1,
+            name: name,
+            rating: ratingEl ? parseFloat(ratingEl.innerText.replace(',', '.')) : null,
+            reviews: revEl ? revEl.innerText.replace(/[()]/g, '').trim() : '',
+            phone: phone,
+        });
+    });
+
+    // === Orgânico: #rso ===
     let orgPos = 0;
     document.querySelectorAll('#rso a[href^="http"]').forEach(a => {
-        if (!a.querySelector('h3')) return;
-        const d = domain(a.href); if (!d || d.includes('google') || seen.has(d)) return;
-        const block = a.closest('[data-hveid], .g, li, [jsaction]');
-        const rating = block?.querySelector('.MW4etd, .yi40Hd, [aria-label*="estrela"], [aria-label*="star"]');
+        if (orgPos >= caps.organic || !a.querySelector('h3')) return;
+        const d = domain(a.href);
+        if (!d || d.includes('google') || seen.has(d)) return;
         seen.add(d);
-        if (rating && out.local_pack.length < caps.local) {
-            const name = block.querySelector('[role="heading"], h3');
-            const rev = block.querySelector('.UY7F9, .RDApEe, .F7nice');
-            out.local_pack.push({pos: out.local_pack.length+1, name: name?.innerText?.trim()||d, domain: d,
-                rating: parseFloat(rating.innerText.replace(',','.'))||null, reviews: rev?.innerText?.trim()||''});
-        } else if (!rating && orgPos < caps.organic) {
-            orgPos++;
-            out.organic.push({pos: orgPos, domain: d, title: a.querySelector('h3').innerText.trim(), url: a.href});
-        }
+        orgPos++;
+        out.organic.push({pos: orgPos, domain: d, title: a.querySelector('h3').innerText.trim(), url: a.href});
     });
+
     return out;
 }"""
 
@@ -92,6 +112,8 @@ _DEBUG_JS = r"""() => {
     info.sample_ad = firstAd ? firstAd.outerHTML.slice(0, 1200) : null;
     const firstLocal = document.querySelector('.rllt__details, .VkpGBb');
     info.sample_local = firstLocal ? firstLocal.outerHTML.slice(0, 1200) : null;
+    const firstBottom = document.querySelector('#tadsb, #bottomads');
+    info.sample_bottomad = firstBottom ? firstBottom.outerHTML.slice(0, 1800) : null;
     return info;
 }"""
 
