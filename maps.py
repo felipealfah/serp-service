@@ -56,15 +56,29 @@ async def discover_maps(browser, nicho: str, cidade: str, max_results: int = 20)
         except Exception:
             pass
 
-        # Rolar o feed para carregar mais lugares
-        for _ in range(8):
+        # Rolar o feed até juntar lugares suficientes (ou chegar ao fim da lista)
+        prev = 0
+        stagnant = 0
+        for _ in range(30):  # teto de rolagens
             try:
                 await page.evaluate(
-                    'const f = document.querySelector(\'[role="feed"]\'); if(f) f.scrollBy(0, 2000);'
+                    'const f = document.querySelector(\'[role="feed"]\'); if(f) f.scrollBy(0, 3000);'
                 )
                 await asyncio.sleep(1.5)
                 if await page.locator('text="Você chegou ao fim da lista"').count() > 0:
                     break
+                n = await page.evaluate(
+                    '() => document.querySelectorAll(\'a[href*="/maps/place/"]\').length'
+                )
+                if n >= max_results:
+                    break
+                if n == prev:            # feed parou de crescer
+                    stagnant += 1
+                    if stagnant >= 3:
+                        break
+                else:
+                    stagnant = 0
+                prev = n
             except Exception:
                 break
 

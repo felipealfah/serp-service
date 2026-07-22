@@ -207,7 +207,7 @@ async def serp(req: SerpRequest, x_api_key: str | None = Header(default=None)):
 class MapsRequest(BaseModel):
     nicho: str = Field(..., description="Segmento/nicho, ex: 'dentistas'")
     cidade: str = Field(..., description="Cidade, ex: 'Brasília/DF'")
-    max_results: int = Field(20, ge=1, le=60, description="Máximo de lugares a extrair")
+    max_results: int = Field(20, ge=1, le=120, description="Máximo de lugares a extrair (teto 120)")
 
 
 @app.post("/maps")
