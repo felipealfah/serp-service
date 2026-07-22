@@ -1,0 +1,16 @@
+# SERP API — repo público. Segredos vêm do .env (gitignored), nunca do compose.
+services:
+  serp-api:
+    build: .
+    container_name: serp-api
+    restart: unless-stopped
+    mem_limit: 4g
+    shm_size: 1g
+    ports:
+      - "8000:8000"              # n8n chama http://IP-DO-NAS:8000/serp
+    env_file: .env               # API_KEY e MAX_CONCURRENCY (fora do git)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
