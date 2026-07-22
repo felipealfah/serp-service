@@ -74,6 +74,27 @@ _SERP_JS = r"""(caps) => {
 
 CAPS = {"organic": 5, "paid": 4, "local": 5}
 
+# Diagnóstico do DOM — revela o que existe na SERP pra acertar os seletores.
+_DEBUG_JS = r"""() => {
+    const q = s => document.querySelectorAll(s).length;
+    const info = {
+        rso: q('#rso'),
+        tads: q('#tads'),
+        tads_ads: q('#tads [data-text-ad], #tads .uEierd'),
+        bottomads: q('#bottomads, #tadsb'),
+        data_text_ad_total: q('[data-text-ad]'),
+        rllt_details: q('.rllt__details'),
+        vkpgbb: q('.VkpGBb'),
+        more_places: !!Array.from(document.querySelectorAll('a,div,span,g-more-link'))
+            .find(e => /mais lugares|more places/i.test(e.innerText || '')),
+    };
+    const firstAd = document.querySelector('#tads [data-text-ad], #tads .uEierd, [data-text-ad]');
+    info.sample_ad = firstAd ? firstAd.outerHTML.slice(0, 1200) : null;
+    const firstLocal = document.querySelector('.rllt__details, .VkpGBb');
+    info.sample_local = firstLocal ? firstLocal.outerHTML.slice(0, 1200) : null;
+    return info;
+}"""
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -100,9 +121,11 @@ class SerpRequest(BaseModel):
     location: str = Field(..., description='Nome canônico UULE, ex: "São Paulo,State of São Paulo,Brazil"')
     gl: str = "br"
     hl: str = "pt-BR"
+    debug: bool = False  # retorna diagnóstico do DOM em vez dos resultados
 
 
-async def _run_search(browser, keyword: str, location: str, gl: str, hl: str) -> dict | None:
+async def _run_search(browser, keyword: str, location: str, gl: str, hl: str,
+                      debug: bool = False) -> dict | None:
     ctx = await browser.new_context(locale=hl, timezone_id="America/Sao_Paulo", user_agent=UA)
     try:
         page = await ctx.new_page()
@@ -116,6 +139,8 @@ async def _run_search(browser, keyword: str, location: str, gl: str, hl: str) ->
         except Exception:
             pass
         await page.wait_for_timeout(1500)
+        if debug:
+            return {"__debug__": await page.evaluate(_DEBUG_JS)}
         return await page.evaluate(_SERP_JS, CAPS)
     finally:
         await ctx.close()
@@ -132,11 +157,15 @@ async def serp(req: SerpRequest, x_api_key: str | None = Header(default=None)):
         raise HTTPException(status_code=401, detail="API key inválida")
 
     async with app.state.sem:
-        results = await _run_search(app.state.browser, req.keyword, req.location, req.gl, req.hl)
+        results = await _run_search(app.state.browser, req.keyword, req.location,
+                                    req.gl, req.hl, req.debug)
 
     if results is None:
         # /sorry — deixa o n8n decidir o retry/backoff
         raise HTTPException(status_code=429, detail="Google retornou /sorry (rate limit). Tente novamente depois.")
+
+    if req.debug:
+        return {"keyword": req.keyword, "location": req.location, **results}
 
     return {
         "keyword": req.keyword,
