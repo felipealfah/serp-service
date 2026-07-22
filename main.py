@@ -24,6 +24,8 @@ from urllib.parse import quote_plus
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from maps import discover_maps
+
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
@@ -95,7 +97,7 @@ _SERP_JS = r"""(caps) => {
     return out;
 }"""
 
-CAPS = {"organic": 5, "paid": 4, "local": 5}
+CAPS = {"organic": 10, "paid": 4, "local": 5}
 
 # Diagnóstico do DOM — revela o que existe na SERP pra acertar os seletores.
 _DEBUG_JS = r"""() => {
@@ -199,4 +201,32 @@ async def serp(req: SerpRequest, x_api_key: str | None = Header(default=None)):
         "organic": results["organic"],
         "paid": results["paid"],
         "local_pack": results["local_pack"],
+    }
+
+
+class MapsRequest(BaseModel):
+    nicho: str = Field(..., description="Segmento/nicho, ex: 'dentistas'")
+    cidade: str = Field(..., description="Cidade, ex: 'Brasília/DF'")
+    max_results: int = Field(20, ge=1, le=60, description="Máximo de lugares a extrair")
+
+
+@app.post("/maps")
+async def maps_endpoint(req: MapsRequest, x_api_key: str | None = Header(default=None)):
+    """Descoberta no Google Maps (para o Prospector). Só extração — sem filtros.
+
+    Retorna negócios com name, rating, reviews, website, phone, maps_url.
+    Os filtros de qualificação (nota mínima, site ruim, e-mail) ficam no consumidor.
+    """
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="API key inválida")
+
+    async with app.state.sem:
+        businesses = await discover_maps(app.state.browser, req.nicho, req.cidade, req.max_results)
+
+    return {
+        "nicho": req.nicho,
+        "cidade": req.cidade,
+        "collected_at": datetime.now(timezone.utc).isoformat(),
+        "count": len(businesses),
+        "businesses": businesses,
     }
