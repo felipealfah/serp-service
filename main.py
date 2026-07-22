@@ -42,22 +42,25 @@ _SERP_JS = r"""(caps) => {
     const seen = new Set();
     function domain(url){ try { return new URL(url).hostname.replace(/^www\./,''); } catch(e){ return ''; } }
 
-    // === Pago: top (#tads) e bottom (#tadsb/#bottomads) ===
-    ['#tads', '#tadsb', '#bottomads'].forEach(sel => {
-        const root = document.querySelector(sel);
-        if (!root) return;
-        root.querySelectorAll('a[href]').forEach(a => {
-            if (out.paid.length >= caps.paid) return;
-            const h = a.querySelector('[role="heading"], h3');
-            if (!h) return;                          // só o link-título do anúncio
-            const d = domain(a.href);
-            if (!d || d.includes('google') || seen.has('ad:' + d)) return;
-            seen.add('ad:' + d);
-            const wrap = a.closest('div');
-            const cite = wrap ? wrap.querySelector('cite') : null;
-            out.paid.push({pos: out.paid.length + 1, domain: d,
-                title: h.innerText.trim(), display_url: cite ? cite.innerText.trim() : ''});
-        });
+    // === Pago: blocos [data-text-ad] (top e bottom). O destino real vem de
+    //     data-pcu — o href do anúncio é um redirect /aclk do próprio Google. ===
+    document.querySelectorAll('[data-text-ad]').forEach(ad => {
+        if (out.paid.length >= caps.paid) return;
+        const a = ad.querySelector('a[data-pcu], a.sVXRqc, a[href]');
+        if (!a) return;
+        let dest = a.getAttribute('data-pcu') || '';
+        if (!dest) {
+            const m = (a.href || '').match(/[?&]adurl=([^&]+)/);
+            dest = m ? decodeURIComponent(m[1]) : a.href;
+        }
+        const d = domain(dest);
+        if (!d || d.includes('google') || seen.has('ad:' + d)) return;
+        seen.add('ad:' + d);
+        const h = ad.querySelector('[role="heading"], h3');
+        const cite = ad.querySelector('cite');
+        out.paid.push({pos: out.paid.length + 1, domain: d,
+            title: h ? h.innerText.trim() : (a.innerText || '').trim().split('\n')[0],
+            display_url: cite ? cite.innerText.trim() : d});
     });
 
     // === Google Meu Negócio (local pack): blocos .rllt__details, fora do #rso ===
